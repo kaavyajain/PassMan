@@ -268,3 +268,144 @@ def authenticate_user(username, master_password):
             return [True, decrypted_KEK, table_key, decrypted_service_table_key]
 
     return [False, None, None, None, None]
+
+#Actions for authenticated users
+
+def add_service(service, username, password, KEK):
+    ''' add a login (service, username, password) to be saved in the password manager '''
+
+    key_KEK = Fernet(KEK)
+    key = Fernet.generate_key()
+    encrypted_key = key_KEK.encrypt(key)
+    str_en_key = bytes.decode(encrypted_key)
+    f = Fernet(key)
+    byte_pass = str.encode(password)
+    encoded_pass = base64.urlsafe_b64encode(byte_pass)
+    encrypted_pass = f.encrypt(encoded_pass)
+    str_en_pass = bytes.decode(encrypted_pass)
+
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("INSERT INTO services (username, service, ep, ek) VALUES (%s, %s, %s, %s)",
+                   (username, service, str_en_pass, str_en_key))
+
+    connection.commit()
+
+    cursor.execute(
+        "SELECT COUNT(1) FROM services WHERE username  = (%s) AND service = (%s)", (username, service))
+
+    count = cursor.fetchone()
+    cursor.close()
+    connection.close()
+
+    if(count[0] == 0):
+        return False
+    else:
+        return True
+
+def get_service(service, username, user_table_key, KEK):
+    ''' get the login that matches the given service and username '''
+
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(1) FROM services WHERE username  = (%s) AND service = (%s)", (username, service))
+
+    count = cursor.fetchone()
+
+    if(count[0] == 0):
+        return None
+
+    else:
+        cursor.execute(
+            "SELECT ep FROM services WHERE username = (%s) AND service = (%s)", (username, service))
+
+        encrypted_pass = cursor.fetchone()
+
+        cursor.execute(
+            "SELECT ek FROM services WHERE username = (%s) AND service = (%s)", (username, service))
+
+        encrypted_key = cursor.fetchone()
+
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+    # decryption
+    byte_en_key = str.encode(encrypted_key[0])
+    byte_en_pass = str.encode(encrypted_pass[0])
+    KEK = Fernet(KEK)
+    decrypted_key = KEK.decrypt(byte_en_key)
+    key = Fernet(decrypted_key)
+    decrypted_pass = key.decrypt(byte_en_pass)
+    password = bytes.decode(base64.urlsafe_b64decode(decrypted_pass))
+
+    return [True, password]
+
+
+def update_service(service, username, new_password, KEK):
+    ''' update the login that matches the given service and username with the given password'''
+
+    connection = create_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT ek FROM services WHERE username = (%s) AND service = (%s)", (username, service))
+
+    encrypted_key = cursor.fetchone()
+
+    KEK = Fernet(KEK)
+    byte_en_key = str.encode(encrypted_key[0])
+    decrypted_key = KEK.decrypt(byte_en_key)
+    key = Fernet(decrypted_key)
+    byte_pass = str.encode(new_password)
+    encoded_pass = base64.urlsafe_b64encode(byte_pass)
+
+    encrypted_pass = key.encrypt(encoded_pass)
+    str_en_pass = bytes.decode(encrypted_pass)
+
+    cursor.execute("UPDATE services SET ep = (%s)  WHERE username = (%s) AND service = (%s)",
+                   (str_en_pass, username, service))
+
+    connection.commit()
+
+    cursor.execute(
+        "SELECT ep FROM services WHERE username = (%s) AND service = (%s)", (username, service))
+
+    new_ep = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    if str_en_pass == new_ep[0]:
+        return True
+
+    return False
+
+
+def delete_service(service, username):
+    ''' delete the login that matches the given service and username '''
+
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "DELETE FROM services WHERE username = (%s) AND service = (%s)", (username, service))
+
+    connection.commit()
+
+    cursor.execute(
+        "SELECT COUNT(1) FROM services WHERE username  = (%s) AND service = (%s)", (username, service))
+
+    count = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    if count[0] == 0:
+        return True
+
+    return False
+
+# TODO: Application layer and gooey
