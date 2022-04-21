@@ -408,4 +408,158 @@ def delete_service(service, username):
 
     return False
 
-# TODO: Application layer and gooey
+
+@Gooey(program_name='PassMan', program_description='A simple and reliable Password Manager!', default_size=(550, 440), show_restart_button=False)
+def main():
+
+    # initialize for first-time users
+    init()
+
+    parser = GooeyParser()                          # main app
+    subs = parser.add_subparsers(dest='command')    # main "function" for app
+
+    # add "sub-functions" (sub-parsers) to the main "function" (parser)
+    setup_parser = subs.add_parser('setup')
+    login_parser = subs.add_parser('login')
+    add_parser = subs.add_parser('add')
+    get_parser = subs.add_parser('get')
+    update_parser = subs.add_parser('update')
+    delete_parser = subs.add_parser('delete')
+    logout_parser = subs.add_parser('logout')
+
+    # add arguments (input fields) for parsers (functions)
+    setup_group = setup_parser.add_argument_group("Setup an Account")
+    setup_group.add_argument("Account Username")
+    setup_group.add_argument("Master Password", widget="PasswordField")
+
+    login_group = login_parser.add_argument_group("Login to Account")
+    login_group.add_argument("Account Username")
+    login_group.add_argument("Master Password", widget="PasswordField")
+
+    add_group = add_parser.add_argument_group("Add Password")
+    add_group.add_argument("Service")
+    add_group.add_argument("Username")
+    add_group.add_argument("Password", widget="PasswordField")
+
+    get_group = get_parser.add_argument_group("Get Password")
+    get_group.add_argument("Service")
+    get_group.add_argument("Username")
+
+    update_group = update_parser.add_argument_group("Update Password")
+    update_group.add_argument("Service")
+    update_group.add_argument("Username")
+    update_group.add_argument("New Password", widget="PasswordField")
+
+    delete_group = delete_parser.add_argument_group("Delete Password")
+    delete_group.add_argument("Service")
+    delete_group.add_argument("Username")
+
+    logout_group = login_parser.add_argument_group("Logout of Account")
+
+    # run app
+    args = vars(parser.parse_args())
+    cmd = args['command']
+
+    # handle subfunctions and their args
+    if cmd == 'setup':
+        print("Creating account...")
+        account_username = args['Account Username']
+        #username = account_username.lower()
+        master_password = args['Master Password']
+        create_user(account_username, master_password)
+        print("Account created!")
+        print("You must still 'login.'")
+        print()
+
+    elif cmd == 'login':
+        print("Authenticating user...")
+        account_username = args['Account Username']
+        master_password = args['Master Password']
+        secrets = authenticate_user(account_username, master_password)
+
+        # write secrets to .env
+        set_key(dotenv_path, "IS_AUTH", str(secrets[0]))
+        set_key(dotenv_path, "KEK", bytes.decode(secrets[1]))
+        set_key(dotenv_path, "UTK", str(secrets[2]))
+        set_key(dotenv_path, "STK", bytes.decode(secrets[3]))
+
+        if secrets[0]:
+            print("User authenticated!")
+        else:
+            print("User authentication failed!")
+        print()
+
+    else:
+        authenticated = bool(os.environ.get("IS_AUTH"))
+        if authenticated:
+            if cmd == 'add':
+                print("Encrypting password...")
+                service = args['Service']
+                username = args['Username']
+                password = args['Password']
+                KEK = os.environ.get("KEK")
+                is_added = add_service(service, username, password, KEK)
+                print("Storing password...")
+                if is_added:
+                    print("Password added!")
+                else:
+                    print("Duplicate service/username pair exists, password not added.")
+                print()
+
+            elif cmd == 'get':
+                print("Searching for password...")
+                service = args['Service']
+                username = args['Username']
+                UTK = os.environ.get("UTK")
+                KEK = str.encode(os.environ.get("KEK"))
+                creds = (get_service(service, username, UTK, KEK))
+                if creds:
+                    print("Password found!")
+                    print('\tService \t\t=>\t {} \n \tUsername \t=>\t {} \n \tPassword \t=>\t {}'.format(
+                        service, username, creds[1]))
+                else:
+                    print('Password not found.')
+                print()
+
+            elif cmd == 'update':
+                print("Updating password...")
+                service = args['Service']
+                username = args['Username']
+                new_password = args['New Password']
+                KEK = os.environ.get("KEK")
+                is_updated = update_service(
+                    service, username, new_password, KEK)
+                if is_updated:
+                    print("Password updated!")
+                else:
+                    print("Login not found, password not updated.")
+                print()
+
+            elif cmd == 'delete':
+                print("Deleting password...")
+                service = args['Service']
+                username = args['Username']
+                is_deleted = delete_service(service, username)
+                if is_deleted:
+                    print("Password deleted!")
+                else:
+                    print("Login not found, password not deleted.")
+                print()
+
+            elif cmd == 'logout':
+                print("Logging out...")
+                set_key(dotenv_path, "IS_AUTH", str(False))
+                set_key(dotenv_path, "KEK", "")
+                set_key(dotenv_path, "UTK", "")
+                set_key(dotenv_path, "STK", "")
+                print("Log out successful!\n")
+
+            else:
+                print("INVALID COMMAND SELECTED!")
+                print("How did you even do that??\n")
+        else:
+            print("\nERROR: User Authentication Failed!")
+            print("Returning users: Use 'login'")
+            print("New users: Use 'setup' and then 'login'\n")
+
+main()
